@@ -299,6 +299,9 @@ bool WorldSession::Update(PacketFilter& updater)
         delete packet;
     }
 
+    if (m_Socket)
+        m_Warden.Update();
+
     ///- Cleanup socket pointer if need
     if (m_Socket && m_Socket->IsClosed ())
     {
@@ -966,4 +969,9 @@ void WorldSession::ExecuteOpcode( OpcodeHandler const& opHandle, WorldPacket* pa
 
     if (packet->rpos() < packet->wpos() && sLog.HasLogLevelOrHigher(LOG_LVL_DEBUG))
         LogUnprocessedTail(packet);
+}
+
+void WorldSession::InitWarden(BigNumber *K)
+{
+    m_Warden.Init(this, K);
 }
