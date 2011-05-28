@@ -9,4 +9,4 @@ CREATE TABLE `warden_data_result` (
   `result` tinytext,
   `comment` text,
   PRIMARY KEY  (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=826 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
