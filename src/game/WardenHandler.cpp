@@ -115,8 +115,8 @@ void Warden::Update()
         if (m_WardenDataSent)
         {
             // 1.5 minutes after send packet
-            if (m_WardenKickTimer > 90 * IN_MILLISECONDS)
-                Client->KickPlayer();
+            if ((m_WardenKickTimer > 90 * IN_MILLISECONDS) && sWorld.getConfig(CONFIG_BOOL_WARDEN_KICK))
+                    Client->KickPlayer();
             else
                 m_WardenKickTimer += diff;
         }

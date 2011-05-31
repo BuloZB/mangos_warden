@@ -30,7 +30,7 @@ enum WardenOpcodes
     WARDEN_CMSG_HASMODULE_NO_ANSWER             = 0,
     WARDEN_CMSG_HASMODULE_YES_ANSWER            = 1,
     WARDEN_CMSG_MODULE_REQUEST_REPLY            = 2,
-    // unknown 3 - exists as response on server 0x04 packet
+    WARDEN_CMSG_MEM_CHECK_REPLY                 = 3,        // only sent if MEM_CHECK bytes doesn't match
     WARDEN_CMSG_HASH_REQUEST_REPLY              = 4,
 
     // Server->Client
@@ -38,7 +38,7 @@ enum WardenOpcodes
     WARDEN_SMSG_MODULE_TRANSMIT                 = 1,
     WARDEN_SMSG_MODULE_REQUEST_DATA             = 2,
     WARDEN_SMSG_MODULE_INITIALIZE               = 3,
-    // unknown 4 - exists byte len, byte[len]
+    WARDEN_SMSG_MEM_CHECK_REQUEST               = 4,        // byte len; whole(!EOF) { byte unk(1); byte index(++); string module(can be 0); int offset; byte len; byte[] bytes_to_compare[len]; }
     WARDEN_SMSG_HASH_REQUEST                    = 5
 };
 
