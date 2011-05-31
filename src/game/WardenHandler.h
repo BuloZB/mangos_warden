@@ -32,6 +32,7 @@ enum WardenOpcodes
     WARDEN_CMSG_MODULE_REQUEST_REPLY            = 2,
     WARDEN_CMSG_MEM_CHECK_REPLY                 = 3,        // only sent if MEM_CHECK bytes doesn't match
     WARDEN_CMSG_HASH_REQUEST_REPLY              = 4,
+    WARDEN_CMSG_HASMODULE_FAILED                = 5,        // this is sent when client failed to load uploaded module due to cache fail
 
     // Server->Client
     WARDEN_SMSG_HASMODULE_REQUEST               = 0,
