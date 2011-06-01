@@ -5556,7 +5556,6 @@ void Spell::EffectTameCreature(SpellEffectIndex /*eff_idx*/)
     pet->SetCreatorGuid(plr->GetObjectGuid());
     pet->setFaction(plr->getFaction());
     pet->SetUInt32Value(UNIT_CREATED_BY_SPELL, m_spellInfo->Id);
-    pet->SetUInt32Value(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP_ATTACKABLE);
 
     if (plr->IsPvP())
         pet->SetPvP(true);
@@ -5696,10 +5695,6 @@ void Spell::EffectSummonPet(SpellEffectIndex eff_idx)
 
     NewSummon->GetCharmInfo()->SetPetNumber(pet_number, true);
     // this enables pet details window (Shift+P)
-
-    // this enables popup window (pet dismiss, cancel), hunter pet additional flags set later
-    if(m_caster->GetTypeId() == TYPEID_PLAYER)
-        NewSummon->SetUInt32Value(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP_ATTACKABLE);
 
     if(m_caster->IsPvP())
         NewSummon->SetPvP(true);
@@ -6890,7 +6885,18 @@ void Spell::EffectScriptEffect(SpellEffectIndex eff_idx)
                     // Torture the Torturer: High Executor's Branding Iron Impact
                     unitTarget->CastSpell(unitTarget, 48614, true);
                     return;
+                case 48724:                                 // The Denouncement: Commander Jordan On Death
+                case 48726:                                 // The Denouncement: Lead Cannoneer Zierhut On Death
+                case 48728:                                 // The Denouncement: Blacksmith Goodman On Death
+                case 48730:                                 // The Denouncement: Stable Master Mercer On Death
+                {
+                    // Compelled
+                    if (!unitTarget || !m_caster->HasAura(48714))
+                        return;
 
+                    unitTarget->CastSpell(unitTarget, m_spellInfo->CalculateSimpleValue(eff_idx), true);
+                    return;
+                }
                 // Gender spells
                 case 48762:                                 // A Fall from Grace: Scarlet Raven Priest Image - Master
                 case 45759:                                 // Warsong Orc Disguise
@@ -7298,6 +7304,10 @@ void Spell::EffectScriptEffect(SpellEffectIndex eff_idx)
                     unitTarget->CastSpell(unitTarget, 66747, true);
                     return;
                 }
+                case 68861:                                 // Consume Soul (ICC FoS: Bronjahm)
+                    if (unitTarget)
+                        unitTarget->CastSpell(unitTarget, m_spellInfo->CalculateSimpleValue(eff_idx), true);
+                    return;
                 case 69377:                                 // Fortitude
                 {
                     if (!unitTarget)
@@ -7774,27 +7784,19 @@ void Spell::EffectDuel(SpellEffectIndex eff_idx)
     Player *target = (Player*)unitTarget;
 
     // caster or target already have requested duel
-    if( caster->duel || target->duel || !target->GetSocial() || target->GetSocial()->HasIgnore(caster->GetObjectGuid()) )
+    if (caster->duel || target->duel || !target->GetSocial() || target->GetSocial()->HasIgnore(caster->GetObjectGuid()))
         return;
 
     // Players can only fight a duel with each other outside (=not inside dungeons and not in capital cities)
-    // Don't have to check the target's map since you cannot challenge someone across maps
-    uint32 mapid = caster->GetMapId();
-    if( mapid != 0 && mapid != 1 && mapid != 530 && mapid != 571 && mapid != 609)
+    AreaTableEntry const* casterAreaEntry = GetAreaEntryByAreaID(caster->GetAreaId());
+    if (casterAreaEntry && !(casterAreaEntry->flags & AREA_FLAG_DUEL))
     {
         SendCastResult(SPELL_FAILED_NO_DUELING);            // Dueling isn't allowed here
         return;
     }
 
-    AreaTableEntry const* casterAreaEntry = GetAreaEntryByAreaID(caster->GetZoneId());
-    if(casterAreaEntry && (casterAreaEntry->flags & AREA_FLAG_CAPITAL) )
-    {
-        SendCastResult(SPELL_FAILED_NO_DUELING);            // Dueling isn't allowed here
-        return;
-    }
-
-    AreaTableEntry const* targetAreaEntry = GetAreaEntryByAreaID(target->GetZoneId());
-    if(targetAreaEntry && (targetAreaEntry->flags & AREA_FLAG_CAPITAL) )
+    AreaTableEntry const* targetAreaEntry = GetAreaEntryByAreaID(target->GetAreaId());
+    if (targetAreaEntry && !(targetAreaEntry->flags & AREA_FLAG_DUEL))
     {
         SendCastResult(SPELL_FAILED_NO_DUELING);            // Dueling isn't allowed here
         return;
