@@ -27,19 +27,19 @@
 enum WardenOpcodes
 {
     // Client->Server
-    WARDEN_CMSG_HASMODULE_NO_ANSWER             = 0,
-    WARDEN_CMSG_HASMODULE_YES_ANSWER            = 1,
-    WARDEN_CMSG_MODULE_REQUEST_REPLY            = 2,
-    WARDEN_CMSG_MEM_CHECK_REPLY                 = 3,        // only sent if MEM_CHECK bytes doesn't match
-    WARDEN_CMSG_HASH_REQUEST_REPLY              = 4,
-    WARDEN_CMSG_HASMODULE_FAILED                = 5,        // this is sent when client failed to load uploaded module due to cache fail
+    WARDEN_CMSG_MODULE_MISSING                  = 0,
+    WARDEN_CMSG_MODULE_OK                       = 1,
+    WARDEN_CMSG_CHEAT_CHECKS_RESULT             = 2,
+    WARDEN_CMSG_MEM_CHECKS_RESULT               = 3,        // only sent if MEM_CHECK bytes doesn't match
+    WARDEN_CMSG_HASH_RESULT                     = 4,
+    WARDEN_CMSG_MODULE_FAILED                   = 5,        // this is sent when client failed to load uploaded module due to cache fail
 
     // Server->Client
-    WARDEN_SMSG_HASMODULE_REQUEST               = 0,
-    WARDEN_SMSG_MODULE_TRANSMIT                 = 1,
-    WARDEN_SMSG_MODULE_REQUEST_DATA             = 2,
+    WARDEN_SMSG_MODULE_USE                      = 0,
+    WARDEN_SMSG_MODULE_CACHE                    = 1,
+    WARDEN_SMSG_CHEAT_CHECKS_REQUEST            = 2,
     WARDEN_SMSG_MODULE_INITIALIZE               = 3,
-    WARDEN_SMSG_MEM_CHECK_REQUEST               = 4,        // byte len; whole(!EOF) { byte unk(1); byte index(++); string module(can be 0); int offset; byte len; byte[] bytes_to_compare[len]; }
+    WARDEN_SMSG_MEM_CHECKS_REQUEST              = 4,        // byte len; whole(!EOF) { byte unk(1); byte index(++); string module(can be 0); int offset; byte len; byte[] bytes_to_compare[len]; }
     WARDEN_SMSG_HASH_REQUEST                    = 5
 };
 
@@ -62,7 +62,7 @@ enum WardenCheckType
 #pragma pack(push,1)
 #endif
 
-struct WardenHasModuleRequest
+struct WardenModuleUse
 {
     uint8 Command;
     uint8 Module_Id[16];
@@ -84,7 +84,7 @@ struct WardenInitModuleRequest
     uint32 CheckSumm1;
     uint8 Unk1;
     uint8 Unk2;
-    uint8 Library_index;
+    uint8 Type;
     uint8 String_library1;
     uint32 Function1[4];
 
@@ -145,7 +145,6 @@ class WorldSession;
 
 class Warden
 {
-    WorldSession * Client;
     public:
         Warden();
         ~Warden();
@@ -168,6 +167,7 @@ class Warden
         uint32 BuildChecksum(const uint8* data, uint32 dataLen);
 
     private:
+        WorldSession *Client;
         uint8 InputKey[16];
         uint8 OutputKey[16];
         uint8 Seed[16];
@@ -179,7 +179,6 @@ class Warden
         uint32 m_WardenKickTimer;                           // time after send packet
         uint32 m_WardenTimer;
         ClientWardenModule *Module;
-        // uint32 id of send data`s
         std::vector<uint32> SendDataId;
         std::vector<uint32> MemCheck;
         bool m_initialized;

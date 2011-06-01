@@ -998,7 +998,6 @@ ListenRange.Yell = 300
 GuidReserveSize.Creature = 100
 GuidReserveSize.GameObject = 100
 
-
 ###################################################################################################################
 # CHAT SETTINGS
 #

@@ -857,14 +857,15 @@ void Log::outWarden(const char * str, ...)
 
     va_list ap;
 
+    printf("WARDEN: ");
     va_start(ap, str);
     vutf8printf(stdout, str, &ap);
     va_end(ap);
-    printf( "\n" );
+    printf("\n");
+
     if (wardenLogFile)
     {
         outTimestamp(wardenLogFile);
-        fprintf(wardenLogFile, "WARDEN: ");
         
         va_start(ap, str);
         vfprintf(wardenLogFile, str, ap);
