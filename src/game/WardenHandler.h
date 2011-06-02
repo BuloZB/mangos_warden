@@ -45,15 +45,15 @@ enum WardenOpcodes
 
 enum WardenCheckType
 {
-    MEM_CHECK               = 0xF3,                         // byte strIndex + uint Offset + byte Len (checks to ensure memory isn't modified?)
-    PAGE_CHECK_A            = 0xB2,                         // uint Seed + byte[20] SHA1 + uint Addr + byte Len
-    PAGE_CHECK_B            = 0xBF,                         // uint Seed + byte[20] SHA1 + uint Addr + byte Len
-    MPQ_CHECK               = 0x98,                         // byte strIndex (checks to ensure MPQ file isn't modified?)
-    LUA_STR_CHECK           = 0x8B,                         // byte strIndex (checks to ensure LUA string isn't used?)
-    DRIVER_CHECK            = 0x71,                         // uint Seed + byte[20] SHA1 + byte strIndex (checks to ensure driver isn't loaded?)
-    TIMING_CHECK            = 0x57,                         // empty (checks to ensure TickCount isn't detoured?)
-    PROC_CHECK              = 0x7E,                         // uint Seed + byte[20] SHA1 + byte strIndex1 + byte strIndex2 + uint Offset + byte Len (checks to ensure proc isn't detoured?)
-    MODULE_CHECK            = 0xD9,                         // uint Seed + byte[20] SHA1 (checks to ensure module isn't loaded)
+    MEM_CHECK               = 0xF3,                         // byte moduleNameIndex + uint Offset + byte Len (check to ensure memory isn't modified)
+    PAGE_CHECK_A            = 0xB2,                         // uint Seed + byte[20] SHA1 + uint Addr + byte Len (scans all pages for specified hash)
+    PAGE_CHECK_B            = 0xBF,                         // uint Seed + byte[20] SHA1 + uint Addr + byte Len (scans only pages starts with MZ+PE headers for specified hash)
+    MPQ_CHECK               = 0x98,                         // byte fileNameIndex (check to ensure MPQ file isn't modified)
+    LUA_STR_CHECK           = 0x8B,                         // byte luaNameIndex (check to ensure LUA string isn't used)
+    DRIVER_CHECK            = 0x71,                         // uint Seed + byte[20] SHA1 + byte driverNameIndex (check to ensure driver isn't loaded)
+    TIMING_CHECK            = 0x57,                         // empty (check to ensure GetTickCount() isn't detoured)
+    PROC_CHECK              = 0x7E,                         // uint Seed + byte[20] SHA1 + byte moluleNameIndex + byte procNameIndex + uint Offset + byte Len (check to ensure proc isn't detoured)
+    MODULE_CHECK            = 0xD9,                         // uint Seed + byte[20] SHA1 (check to ensure module isn't injected)
 };
 
 #if defined(__GNUC__)
