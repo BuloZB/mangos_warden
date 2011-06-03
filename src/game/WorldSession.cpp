@@ -39,6 +39,7 @@
 #include "Auth/AuthCrypt.h"
 #include "Auth/HMACSHA1.h"
 #include "zlib/zlib.h"
+#include "WardenWin.h"
 
 // select opcodes appropriate for processing in Map::Update context for current session state
 static bool MapSessionFilterHelper(WorldSession* session, OpcodeHandler const& opHandle)
@@ -108,6 +109,9 @@ WorldSession::~WorldSession()
         m_Socket->RemoveReference ();
         m_Socket = NULL;
     }
+
+    if (m_Warden)
+        delete m_Warden;
 
     ///- empty incoming packet queue
     WorldPacket* packet;
@@ -300,7 +304,7 @@ bool WorldSession::Update(PacketFilter& updater)
     }
 
     if (m_Socket)
-        m_Warden.Update();
+        m_Warden->Update();
 
     ///- Cleanup socket pointer if need
     if (m_Socket && m_Socket->IsClosed ())
@@ -973,5 +977,7 @@ void WorldSession::ExecuteOpcode( OpcodeHandler const& opHandle, WorldPacket* pa
 
 void WorldSession::InitWarden(BigNumber *K)
 {
-    m_Warden.Init(this, K);
+    // TODO: check client's os and create proper warden class
+    m_Warden = (WardenBase*)new WardenWin();
+    m_Warden->Init(this, K);
 }

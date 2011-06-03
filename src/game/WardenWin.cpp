@@ -23,7 +23,6 @@
 #include "WorldSession.h"
 #include "Log.h"
 #include "Opcodes.h"
-#include "WardenHandler.h"
 #include "ByteBuffer.h"
 #include <openssl/md5.h>
 #include "ProgressBar.h"
@@ -31,39 +30,21 @@
 #include "World.h"
 #include "Player.h"
 #include "Util.h"
+#include "WardenWin.h"
+#include "WardenModuleWin.h"
+#include "WardenDataStorage.h"
 
-#ifndef _WIN32
-#include <dirent.h>
-#include <errno.h>
-#endif
+CWardenDataStorage WardenDataStorage;
 
-CWardenModuleStorage WardenModuleStorage;
-
-void Warden::LoadModule()
-{
-    Module = WardenModuleStorage.GetModuleForClient(Client);
-}
-
-void Warden::PrintHexArray(const char *Before, const uint8 *Buffer, uint32 Len, bool BreakWithNewline)
-{
-    printf(Before);
-    for (uint32 i = 0; i < Len; ++i)
-        printf("%02X ", Buffer[i]);
-    if (BreakWithNewline)
-        printf("\n");
-}
-
-Warden::Warden() : iCrypto(16), oCrypto(16), m_WardenCheckTimer(10000/*10 sec*/), m_WardenKickTimer(0), m_WardenDataSent(false), m_initialized(false)
+WardenWin::WardenWin()
 {
 }
 
-Warden::~Warden()
+WardenWin::~WardenWin()
 {
-    Module = NULL;
-    m_initialized = false;
 }
 
-void Warden::Init(WorldSession *pClient, BigNumber *K)
+void WardenWin::Init(WorldSession *pClient, BigNumber *K)
 {
     Client = pClient;
     // Generate Warden Key
@@ -88,141 +69,36 @@ void Warden::Init(WorldSession *pClient, BigNumber *K)
     PrintHexArray("  S->C Key: ", OutputKey, 16, true);
     PrintHexArray("  Seed: ", Seed, 16, true);
     sLog.outWarden("Loading Module...");
-    LoadModule();
 
-    if (!Module)
-    {
-        sLog.outWarden("Could not find a module appropriate for this. Aborting.");
-        return;
-    }
+    Module = GetModuleForClient(Client);
 
     PrintHexArray("  Module Key: ", Module->Key, 16, true);
     PrintHexArray("  Module ID: ", Module->ID, 16, true);
     RequestModule();
 }
 
-void Warden::Update()
+ClientWardenModule *WardenWin::GetModuleForClient(WorldSession *session)
 {
-    if (m_initialized)
-    {
-        uint32 ticks = WorldTimer::getMSTime();
-        uint32 diff = ticks - m_WardenTimer;
-        m_WardenTimer = ticks;
+    ClientWardenModule *mod = new ClientWardenModule;
 
-        if (m_WardenDataSent)
-        {
-            // 1.5 minutes after send packet
-            if ((m_WardenKickTimer > 90 * IN_MILLISECONDS) && sWorld.getConfig(CONFIG_BOOL_WARDEN_KICK))
-                    Client->KickPlayer();
-            else
-                m_WardenKickTimer += diff;
-        }
-        else if (m_WardenCheckTimer > 0)
-        {
-            if (diff >= m_WardenCheckTimer)
-            {
-                RequestData();
-                // 25-35 second
-                m_WardenCheckTimer = irand(25, 35) * IN_MILLISECONDS;
-            }
-            else
-                m_WardenCheckTimer -= diff;
-        }
-    }
+    uint32 len = sizeof(Module_79C0768D657977D697E10BAD956CCED1_Data);
+
+    // data assign
+    mod->CompressedSize = len;
+    mod->CompressedData = new uint8[len];
+    memcpy(mod->CompressedData, Module_79C0768D657977D697E10BAD956CCED1_Data, len);
+    memcpy(mod->Key, Module_79C0768D657977D697E10BAD956CCED1_Key, 16);
+        
+    // md5 hash
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, mod->CompressedData, len);
+    MD5_Final((uint8*)&mod->ID, &ctx);
+
+    return mod;
 }
 
-void Warden::DecryptData(uint8 *Buffer, uint32 Len)
-{
-    iCrypto.UpdateData(Len, Buffer);
-}
-
-void Warden::EncryptData(uint8 *Buffer, uint32 Len)
-{
-    oCrypto.UpdateData(Len, Buffer);
-}
-
-void WorldSession::HandleWardenDataOpcode(WorldPacket & recv_data)
-{
-    m_Warden.DecryptData(const_cast<uint8*>(recv_data.contents()), recv_data.size());
-    uint8 Opcode;
-    recv_data >> Opcode;
-    sLog.outWarden("Got packet, opcode %02X, size %u", Opcode, recv_data.size());
-    recv_data.hexlike();
-
-    switch(Opcode)
-    {
-        case WARDEN_CMSG_MODULE_MISSING:
-            m_Warden.SendModuleToClient();
-            break;
-        case WARDEN_CMSG_MODULE_OK:
-            m_Warden.RequestHash();
-            break;
-        case WARDEN_CMSG_CHEAT_CHECKS_RESULT:
-            m_Warden.HandleData(recv_data);
-            break;
-        case WARDEN_CMSG_MEM_CHECKS_RESULT:
-            sLog.outWarden("NYI WARDEN_CMSG_MEM_CHECKS_RESULT received!");
-            break;
-        case WARDEN_CMSG_HASH_RESULT:
-            m_Warden.RequestHashReply(recv_data);
-            m_Warden.InitializeModule();
-            break;
-        case WARDEN_CMSG_MODULE_FAILED:
-            sLog.outWarden("NYI WARDEN_CMSG_MODULE_FAILED received!");
-            break;
-        default:
-            sLog.outWarden("Got unknown warden opcode %02X of size %u.", Opcode, recv_data.size() - 1);
-            break;
-    }
-}
-
-void Warden::SendModuleToClient()
-{
-    sLog.outWarden("Send module to client");
-
-    // Create packet structure
-    WardenModuleTransfer pkt;
-
-    uint32 size_left = Module->CompressedSize;
-    uint32 pos = 0;
-    uint16 burst_size;
-    while (size_left > 0)
-    {
-        burst_size = size_left < 500 ? size_left : 500;
-        pkt.Command = WARDEN_SMSG_MODULE_CACHE;
-        pkt.DataSize = burst_size;
-        memcpy(pkt.Data, &Module->CompressedData[pos], burst_size);
-        size_left -= burst_size;
-        pos += burst_size;
-
-        EncryptData((uint8*)&pkt, burst_size + 3);
-        WorldPacket pkt1(SMSG_WARDEN_DATA, burst_size + 3);
-        pkt1.append((uint8*)&pkt, burst_size + 3);
-        Client->SendPacket(&pkt1);
-    }
-}
-
-void Warden::RequestModule()
-{
-    sLog.outWarden("Request module");
-
-    // Create packet structure
-    WardenModuleUse Request;
-    Request.Command = WARDEN_SMSG_MODULE_USE;
-
-    memcpy(Request.Module_Id, Module->ID, 16);
-    memcpy(Request.Module_Key, Module->Key, 16);
-    Request.Size = Module->CompressedSize;
-
-    // Encrypt with warden RC4 key.
-    EncryptData((uint8*)&Request, sizeof(WardenModuleUse));
-
-    WorldPacket pkt(SMSG_WARDEN_DATA, sizeof(WardenModuleUse));
-    pkt.append((uint8*)&Request, sizeof(WardenModuleUse));
-    Client->SendPacket(&pkt);
-}
-
-void Warden::InitializeModule()
+void WardenWin::InitializeModule()
 {
     sLog.outWarden("Initialize module");
 
@@ -266,17 +142,7 @@ void Warden::InitializeModule()
     Client->SendPacket(&pkt);
 }
 
-uint32 Warden::BuildChecksum(const uint8* data, uint32 dataLen)
-{
-    uint8 hash[20];
-    SHA1(data, dataLen, hash);
-    uint32 checkSum = 0;
-    for (uint8 i = 0; i < 5; ++i)
-        checkSum = checkSum ^ *(uint32*)(&hash[0] + i * 4);
-    return checkSum;
-}
-
-void Warden::RequestHash()
+void WardenWin::RequestHash()
 {
     sLog.outWarden("Request hash");
 
@@ -293,7 +159,7 @@ void Warden::RequestHash()
     Client->SendPacket(&pkt);
 }
 
-void Warden::RequestHashReply(ByteBuffer &buff)
+void WardenWin::HandleHashResult(ByteBuffer &buff)
 {
     buff.rpos(buff.wpos());
 
@@ -328,16 +194,16 @@ void Warden::RequestHashReply(ByteBuffer &buff)
     m_WardenTimer = WorldTimer::getMSTime();
 }
 
-void Warden::RequestData()
+void WardenWin::RequestData()
 {
     sLog.outWarden("Request data");
 
     if (MemCheck.empty())
-        MemCheck.assign(WardenModuleStorage.memcheckid.begin(), WardenModuleStorage.memcheckid.end());
+        MemCheck.assign(WardenDataStorage.MemCheckIds.begin(), WardenDataStorage.MemCheckIds.end());
 
     ServerTicks = WorldTimer::getMSTime();
 
-    uint32 maxid = WardenModuleStorage.InternalDataID;
+    uint32 maxid = WardenDataStorage.InternalDataID;
 
     uint32 id;
     uint8 type;
@@ -360,7 +226,7 @@ void Warden::RequestData()
     for (int i = 0; i < 5; ++i)                             // for now include 5 random checks
     {
         id = irand(1, maxid - 1);
-        wd = WardenModuleStorage.GetWardenDataById(id);
+        wd = WardenDataStorage.GetWardenDataById(id);
         SendDataId.push_back(id);
         switch (wd->Type)
         {
@@ -384,7 +250,7 @@ void Warden::RequestData()
 
     for (std::vector<uint32>::iterator itr = SendDataId.begin(); itr != SendDataId.end(); ++itr)
     {
-        wd = WardenModuleStorage.GetWardenDataById(*itr);
+        wd = WardenDataStorage.GetWardenDataById(*itr);
 
         type = wd->Type;
         buff << uint8(type ^ xorByte);
@@ -459,23 +325,7 @@ void Warden::RequestData()
     sLog.outWarden(stream.str().c_str());
 }
 
-bool Warden::IsValidCheckSum(uint32 checksum, const uint8 *Data, const uint16 Length)
-{
-    uint32 newchecksum = BuildChecksum(Data, Length);
-
-    if (checksum != newchecksum)
-    {
-        sLog.outWarden("CHECKSUM IS NOT VALID");
-        return false;
-    }
-    else
-    {
-        sLog.outWarden("CHECKSUM IS VALID");
-        return true;
-    }
-}
-
-void Warden::HandleData(ByteBuffer &buff)
+void WardenWin::HandleData(ByteBuffer &buff)
 {
     sLog.outWarden("Handle data");
 
@@ -526,8 +376,8 @@ void Warden::HandleData(ByteBuffer &buff)
 
     for (std::vector<uint32>::iterator itr = SendDataId.begin(); itr != SendDataId.end(); ++itr)
     {
-        rd = WardenModuleStorage.GetWardenDataById(*itr);
-        rs = WardenModuleStorage.GetWardenResultById(*itr);
+        rd = WardenDataStorage.GetWardenDataById(*itr);
+        rs = WardenDataStorage.GetWardenResultById(*itr);
 
         type = rd->Type;
         switch (type)
@@ -642,244 +492,4 @@ void Warden::HandleData(ByteBuffer &buff)
 
     if (found && sWorld.getConfig(CONFIG_BOOL_WARDEN_KICK))
         Client->KickPlayer();
-}
-
-CWardenModuleStorage::CWardenModuleStorage()
-{
-    InternalDataID = 1;
-}
-
-CWardenModuleStorage::~CWardenModuleStorage()
-{
-    std::map<uint32, ClientWardenModule*>::iterator itr = _modules.begin();
-    ClientWardenModule *mod;
-    for (; itr != _modules.end(); ++itr)
-    {
-        mod = itr->second;
-        delete [] mod->CompressedData;
-        delete mod;
-    }
-    std::map<uint32, WardenData*>::iterator itr1 = _data_map.begin();
-    for (; itr1 != _data_map.end(); ++itr1)
-        delete itr1->second;
-
-    std::map<uint32, WardenDataResult*>::iterator itr2 = _result_map.begin();
-    for (; itr2 != _result_map.end(); ++itr2)
-        delete itr2->second;
-}
-
-void CWardenModuleStorage::Init()
-{
-    sLog.outWarden("===================================================================");
-    sLog.outWarden("WardenModuleStorage - Server Side Storage of Client Warden Modules");
-    sLog.outWarden("  Searching for modules...");
-
-#ifndef _WIN32
-
-    DIR *dirp;
-    struct dirent *dp;
-    dirp = opendir("./warden/");
-    if (!dirp)
-        return;
-    while (dirp)
-    {
-        errno = 0;
-        if ((dp = readdir(dirp)) != NULL)
-        {
-            int l = strlen(dp->d_name);
-            if (l < 36)
-                continue;
-            if (!memcmp(&dp->d_name[l-4],".wrd",4))
-                LoadModule(dp->d_name);
-        }
-        else
-        {
-            if (errno != 0)
-            {
-                closedir(dirp);
-                return;
-            }
-            break;
-        }
-    }
-
-    if (dirp)
-        closedir(dirp);
-
-#else
-
-    WIN32_FIND_DATA fil;
-    HANDLE hFil = FindFirstFile("./warden/*.wrd", &fil);
-    if (hFil == INVALID_HANDLE_VALUE)
-        return;
-    do
-    {
-        LoadModule(fil.cFileName);
-    }
-    while (FindNextFile(hFil, &fil));
-    FindClose(hFil);
-#endif
-    sLog.outWarden("  Loaded %u modules.", _modules.size());
-    sLog.outWarden("===================================================================");
-    LoadWardenDataResult();
-}
-
-ClientWardenModule *CWardenModuleStorage::LoadModule(const char *FileName)
-{
-    char fn_module[256];
-    snprintf(fn_module, 256, "./warden/%s", FileName);
-    ClientWardenModule *mod = new ClientWardenModule;
-    FILE *f_mod = fopen(fn_module, "rb");
-
-    if (f_mod == 0)
-        return NULL;
-
-    // now read module
-    fseek(f_mod, 0, SEEK_END);
-    uint32 len = ftell(f_mod);
-    fseek(f_mod, 0, SEEK_SET);
-    // data assign
-    mod->CompressedSize = len;
-    mod->CompressedData = new uint8[len];
-    fread(mod->CompressedData, len, 1, f_mod);
-
-    // md5 hash
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, mod->CompressedData, len);
-    MD5_Final((uint8*)&mod->ID, &ctx);
-
-    fclose(f_mod);
-
-    std::string fName = FileName;
-    fName.erase(fName.end() - 4, fName.end());
-
-    std::string path = "./warden/";
-    path += fName;
-    path += ".key";
-
-    FILE *f_key = fopen(path.c_str(), "rb");
-
-    if (f_key == 0)
-        return NULL;
-
-    // read key
-    fread(mod->Key, 16, 1, f_key);
-
-    fclose(f_key);
-    _modules[GenerateInternalModuleID()] = mod;
-
-    return mod;
-}
-
-void CWardenModuleStorage::LoadWardenDataResult()
-{
-    QueryResult *result = WorldDatabase.Query("SELECT `check`, `data`, `result`, `address`, `length`, `str` FROM warden_data_result");
-
-    uint32 count = 0;
-
-    if (!result)
-    {
-        barGoLink bar(1);
-        bar.step();
-
-        sLog.outString();
-        sLog.outString(">> Loaded %u warden data and results", count);
-        return;
-    }
-
-    barGoLink bar((int)result->GetRowCount());
-
-    do
-    {
-        ++count;
-        bar.step();
-
-        Field *fields = result->Fetch();
-
-        uint8 type = fields[0].GetUInt8();
-
-        uint32 id = GenerateInternalDataID();
-        WardenData *wd = new WardenData();
-        wd->Type = type;
-
-        if (type == PAGE_CHECK_A || type == PAGE_CHECK_B || type == DRIVER_CHECK)
-        {
-            std::string data = fields[1].GetCppString();
-            wd->i.SetHexStr(data.c_str());
-            int len = data.size() / 2;
-            if (wd->i.GetNumBytes() < len)
-            {
-                uint8 temp[24];
-                memset(temp, 0, len);
-                memcpy(temp, wd->i.AsByteArray(), wd->i.GetNumBytes());
-                std::reverse(temp, temp + len);
-                wd->i.SetBinary((uint8*)temp, len);
-            }
-        }
-
-        if (type == MEM_CHECK || type == MODULE_CHECK)
-            memcheckid.push_back(id);
-
-        if (type == MEM_CHECK || type == PAGE_CHECK_A || type == PAGE_CHECK_B || type == PROC_CHECK)
-        {
-            wd->Address = fields[3].GetUInt32();
-            wd->Length = fields[4].GetUInt8();
-        }
-
-        // PROC_CHECK support missing
-        if (type == MEM_CHECK || type == MPQ_CHECK || type == LUA_STR_CHECK || type == DRIVER_CHECK || type == MODULE_CHECK)
-            wd->str = fields[5].GetCppString();
-
-        _data_map[id] = wd;
-
-        if (type == MPQ_CHECK || type == MEM_CHECK)
-        {
-            std::string result = fields[2].GetCppString();
-            WardenDataResult *wr = new WardenDataResult();
-            wr->res.SetHexStr(result.c_str());
-            int len = result.size() / 2;
-            if (wr->res.GetNumBytes() < len)
-            {
-                uint8 *temp = new uint8[len];
-                memset(temp, 0, len);
-                memcpy(temp, wr->res.AsByteArray(), wr->res.GetNumBytes());
-                std::reverse(temp, temp + len);
-                wr->res.SetBinary((uint8*)temp, len);
-                delete [] temp;
-            }
-            _result_map[id] = wr;
-        }
-    } while (result->NextRow());
-
-    delete result;
-
-    sLog.outString();
-    sLog.outString(">> Loaded %u warden data and results", count);
-}
-
-ClientWardenModule *CWardenModuleStorage::GetModuleForClient(WorldSession *Session)
-{
-    // At the moment, return first
-    if (_modules.empty())
-        return NULL;
-
-    ClientWardenModule *mod = _modules.begin()->second;
-    return mod;
-}
-
-WardenData *CWardenModuleStorage::GetWardenDataById(uint32 Id)
-{
-    std::map<uint32, WardenData*>::const_iterator itr = _data_map.find(Id);
-    if (itr != _data_map.end())
-        return itr->second;
-    return NULL;
-}
-
-WardenDataResult *CWardenModuleStorage::GetWardenResultById(uint32 Id)
-{
-    std::map<uint32, WardenDataResult*>::const_iterator itr = _result_map.find(Id);
-    if (itr != _result_map.end())
-        return itr->second;
-    return NULL;
 }

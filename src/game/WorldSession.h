@@ -28,7 +28,7 @@
 #include "ObjectGuid.h"
 #include "AuctionHouseMgr.h"
 #include "Item.h"
-#include "WardenHandler.h"
+#include "WardenBase.h"
 
 struct ItemPrototype;
 struct AuctionEntry;
@@ -879,7 +879,7 @@ class MANGOS_DLL_SPEC WorldSession
         uint8 m_expansion;
 
         // Warden 
-        Warden m_Warden;
+        WardenBase *m_Warden;
 
         time_t _logoutTime;
         bool m_inQueue;                                     // session wait in auth.queue

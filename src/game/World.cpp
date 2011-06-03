@@ -62,6 +62,7 @@
 #include "GMTicketMgr.h"
 #include "Util.h"
 #include "CharacterDatabaseCleaner.h"
+#include "WardenDataStorage.h"
 
 INSTANTIATE_SINGLETON_1( World );
 
@@ -1359,8 +1360,8 @@ void World::SetInitialWorldSettings()
     uint32 nextGameEvent = sGameEventMgr.Initialize();
     m_timers[WUPDATE_EVENTS].SetInterval(nextGameEvent);    //depend on next event
 
-    sLog.outString("Loading Warden Modules..." );
-    WardenModuleStorage.Init();
+    sLog.outString("Loading Warden Data..." );
+    WardenDataStorage.Init();
 
     // Delete all characters which have been deleted X days before
     Player::DeleteOldCharacters();
